@@ -9,6 +9,10 @@ import AdminDashboard from './pages/admin/AdminDashboard'
 import ManagerDashboard from './pages/manager/ManagerDashboard'
 import EmployeeDashboard from './pages/employee/EmployeeDashboard'
 import AssignedTenders from './pages/employee/AssignedTenders'
+import TenderManagement from './pages/tenders/TenderManagement'
+import CreateTender from './pages/tenders/CreateTender'
+
+import UsersPage from './pages/admin/UsersPage'
 import LoginPage from './pages/auth/LoginPage'
 import ProtectedRoute from './routes/ProtectedRoute'
 import AppLayout from './components/layout/AppLayout'
@@ -44,6 +48,7 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={['ADMIN']}>
               <AppLayout />
+              
             </ProtectedRoute>
           }
         >
@@ -51,6 +56,15 @@ function App() {
             path="/admin/dashboard"
             element={<AdminDashboard />}
           />
+          <Route
+          path="/admin/tenders"
+          element={<TenderManagement />}
+        />
+       <Route
+        path="/admin/tenders/create"
+        element={<CreateTender />}
+      />
+      <Route path="/admin/users" element={<UsersPage />} />
 
           <Route
             path="/admin/*"
@@ -70,6 +84,15 @@ function App() {
             path="/manager/dashboard"
             element={<ManagerDashboard />}
           />
+          <Route
+          path="/manager/tenders"
+          element={<TenderManagement />}
+        />
+
+        <Route
+          path="/manager/tenders/create"
+          element={<CreateTender />}
+        />
           <Route
             path="/manager/*"
             element={<DashboardPlaceholder title="Manager Module" />}

@@ -3,6 +3,7 @@ import cors from 'cors'
 
 import authRoutes from './routes/authRoutes.js'
 import tenderRoutes from './routes/tenderRoutes.js'
+import userRoutes from './routes/userRoutes.js'
 import {
   notFound,
   errorHandler,
@@ -36,6 +37,7 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api/auth', authRoutes)
 app.use('/api/tenders', tenderRoutes)
+app.use('/api/users', userRoutes)
 
 app.use(notFound)
 app.use(errorHandler)

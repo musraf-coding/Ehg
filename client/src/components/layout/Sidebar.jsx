@@ -59,11 +59,23 @@ const menuByRole = {
   ],
 }
 
+const ROLE_BADGE_STYLES = {
+  ADMIN: 'bg-[#6B3A98]/20 text-[#C9A9E8] ring-1 ring-[#6B3A98]/40',
+  MANAGER: 'bg-[#2F8CC9]/20 text-[#9CCEEE] ring-1 ring-[#2F8CC9]/40',
+  EMPLOYEE: 'bg-white/10 text-slate-300 ring-1 ring-white/10',
+}
+
+const getInitial = (name) => {
+  if (!name) return '?'
+  return name.trim().charAt(0).toUpperCase()
+}
+
 const Sidebar = () => {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
 
   const menuItems = menuByRole[user?.role] || []
+  const badgeStyle = ROLE_BADGE_STYLES[user?.role] || ROLE_BADGE_STYLES.EMPLOYEE
 
   const handleLogout = () => {
     logout()
@@ -71,28 +83,67 @@ const Sidebar = () => {
   }
 
   return (
-    <aside className="flex h-screen w-72 flex-col border-r border-slate-800 bg-slate-950 text-white">
-      <div className="border-b border-slate-800 px-6 py-6">
-        <h1 className="text-xl font-bold tracking-tight">
-          EHG Holdings
-        </h1>
+    // h-full + w-full: the sidebar fills whatever container renders it
+    // (a fixed desktop rail today, a slide-in drawer later). Width is
+    // owned by that container, not hard-coded here, per the brief.
+    <aside
+      aria-label="Sidebar navigation"
+      className="relative flex h-full max-h-dvh w-full flex-col overflow-hidden bg-[#0F172A] text-slate-200 lg:border-r lg:border-white/10"
+    >
+      {/* subtle branded lighting — quiet, not decorative overload */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -left-16 -top-20 h-56 w-56 rounded-full bg-[#6B3A98] opacity-[0.12] blur-3xl"
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -bottom-24 -right-10 h-64 w-64 rounded-full bg-[#2F8CC9] opacity-[0.10] blur-3xl"
+      />
 
-        <p className="mt-1 text-xs text-slate-400">
-          Business Management System
+      {/* Brand / header */}
+      <div className="relative shrink-0 border-b border-white/10 px-5 py-5">
+        <img
+          src="/images/logo.jpeg"
+          alt="EHG Holdings"
+          className="h-11 w-auto object-contain"
+        />
+
+        <p className="mt-3 truncate text-[13px] font-medium tracking-tight text-slate-300">
+          Tender &amp; Business Management
         </p>
       </div>
 
-      <div className="border-b border-slate-800 px-6 py-4">
-        <p className="truncate text-sm font-semibold">
-          {user?.name}
-        </p>
+      {/* User area */}
+      <div className="relative shrink-0 border-b border-white/10 px-5 py-4">
+        <div className="flex items-center gap-3">
+          <span
+            aria-hidden="true"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-semibold text-white ring-1 ring-white/10"
+          >
+            {getInitial(user?.name)}
+          </span>
 
-        <p className="mt-1 text-xs text-slate-400">
-          {user?.role}
-        </p>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-white" title={user?.name}>
+              {user?.name}
+            </p>
+
+            {user?.role && (
+              <span
+                className={`mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide ${badgeStyle}`}
+              >
+                {user.role}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-4">
+      {/* Navigation */}
+      <nav
+        aria-label="Main"
+        className="scrollbar-hide relative min-h-0 flex-1 overflow-y-auto px-3 py-4"
+      >
         <div className="space-y-1">
           {menuItems.map((item) => {
             const Icon = item.icon
@@ -101,30 +152,51 @@ const Sidebar = () => {
               <NavLink
                 key={item.path}
                 to={item.path}
+                title={item.label}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
+                  `group relative flex min-h-[44px] items-center gap-3 rounded-lg py-2.5 pl-3 pr-3 text-sm font-medium transition ${
                     isActive
-                      ? 'bg-white text-slate-950'
-                      : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                      ? 'bg-[#6B3A98]/15 text-white'
+                      : 'text-slate-300 hover:bg-white/5 hover:text-white'
                   }`
                 }
               >
-                <Icon size={18} />
+                {({ isActive }) => (
+                  <>
+                    {/* active indicator bar */}
+                    <span
+                      aria-hidden="true"
+                      className={`absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full transition-colors ${
+                        isActive ? 'bg-[#2F8CC9]' : 'bg-transparent'
+                      }`}
+                    />
 
-                <span>{item.label}</span>
+                    <Icon
+                      size={18}
+                      className={
+                        isActive
+                          ? 'shrink-0 text-[#9CCEEE]'
+                          : 'shrink-0 text-slate-400 group-hover:text-slate-200'
+                      }
+                    />
+
+                    <span className="truncate">{item.label}</span>
+                  </>
+                )}
               </NavLink>
             )
           })}
         </div>
       </nav>
 
-      <div className="border-t border-slate-800 p-3">
+      {/* Logout — visually separated from nav */}
+      <div className="relative shrink-0 border-t border-white/10 p-3">
         <button
           type="button"
           onClick={handleLogout}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-slate-900 hover:text-white"
+          className="flex min-h-[44px] w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-red-500/10 hover:text-red-400"
         >
-          <LogOut size={18} />
+          <LogOut size={18} className="shrink-0" />
           Logout
         </button>
       </div>
