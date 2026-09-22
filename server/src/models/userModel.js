@@ -90,9 +90,10 @@ export const getAllUsers = async () => {
       ORDER BY
         CASE roles.name
           WHEN 'ADMIN' THEN 1
-          WHEN 'MANAGER' THEN 2
-          WHEN 'EMPLOYEE' THEN 3
-          ELSE 4
+          WHEN 'CEO' THEN 2
+          WHEN 'MANAGER' THEN 3
+          WHEN 'EMPLOYEE' THEN 4
+          ELSE 5
         END,
         users.name ASC
     `
@@ -164,6 +165,34 @@ export const getActiveEmployees = async () => {
     WHERE roles.name = 'EMPLOYEE'
       AND users.status = 'ACTIVE'
     ORDER BY users.name ASC
+  `)
+
+  return rows
+}
+
+
+export const getActiveTenderOwners = async () => {
+  const [rows] = await pool.query(`
+    SELECT
+      users.id,
+      users.name,
+      users.email,
+      users.department,
+      users.status,
+      roles.name AS role
+    FROM users
+    INNER JOIN roles
+      ON users.role_id = roles.id
+    WHERE roles.name IN ('ADMIN', 'CEO', 'MANAGER')
+      AND users.status = 'ACTIVE'
+    ORDER BY
+      CASE roles.name
+        WHEN 'ADMIN' THEN 1
+        WHEN 'CEO' THEN 2
+        WHEN 'MANAGER' THEN 3
+        ELSE 4
+      END,
+      users.name ASC
   `)
 
   return rows

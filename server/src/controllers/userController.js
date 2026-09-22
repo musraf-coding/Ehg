@@ -8,7 +8,7 @@ import {
   findUserById,
 } from '../models/userModel.js'
 
-const ALLOWED_ROLES = ['MANAGER', 'EMPLOYEE']
+const ALLOWED_ROLES = ['CEO', 'MANAGER', 'EMPLOYEE']
 const ALLOWED_STATUSES = ['ACTIVE', 'INACTIVE']
 
 // GET /api/users

@@ -66,6 +66,11 @@ const LoginPage = () => {
       case 'EMPLOYEE':
         navigate('/employee/dashboard', { replace: true })
         break
+      
+      case 'CEO':
+        navigate('/ceo/dashboard', { replace: true })
+        break
+      
 
       default:
         navigate('/login', { replace: true })

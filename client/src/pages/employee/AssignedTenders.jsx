@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   BriefcaseBusiness,
   CalendarDays,
@@ -204,6 +205,7 @@ const getDeadlineInfo = (deadline) => {
 }
 
 const AssignedTenders = () => {
+  const navigate = useNavigate()
   const [tenders, setTenders] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -812,6 +814,22 @@ const AssignedTenders = () => {
                       </span>
                     </div>
                   </div>
+
+
+                  {/* Workspace action */}
+<div className="mt-6 border-t border-slate-100 pt-5">
+  <button
+    type="button"
+    onClick={() =>
+      navigate(
+        `/employee/tenders/${tender.id}/workspace`
+      )
+    }
+    className="inline-flex min-h-[44px] w-full items-center justify-center rounded-xl bg-[#6B3A98] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#5A3182] sm:w-auto"
+  >
+    Open Tender Workspace
+  </button>
+</div>
                 </div>
               </article>
             )

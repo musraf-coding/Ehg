@@ -32,6 +32,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   if (allowedRoles && !allowedRoles.includes(user.role)) {
     const dashboardByRole = {
       ADMIN: '/admin/dashboard',
+       CEO: '/ceo/dashboard',
       MANAGER: '/manager/dashboard',
       EMPLOYEE: '/employee/dashboard',
     }

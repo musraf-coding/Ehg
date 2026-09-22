@@ -6,10 +6,17 @@ import {
   assignTenderToEmployee,
   getTenderAssignments,
   getAssignedTendersByUserId,
+  removeTenderAssignment,
+   archiveTenderById,
 } from '../models/tenderModel.js'
 
-import { findUserById } from '../models/userModel.js'
-import { getActiveEmployees } from '../models/userModel.js'
+import {
+  findUserById,
+  getActiveEmployees,
+  getActiveTenderOwners,
+} from '../models/userModel.js'
+
+import { findCompanyById } from '../models/companyModel.js'
 
 const allowedStatuses = [
   'DRAFT',
@@ -21,11 +28,24 @@ const allowedStatuses = [
   'CANCELLED',
 ]
 
+const allowedResults = [
+  'PENDING',
+  'WON',
+  'LOST',
+  'CANCELLED',
+]
+
 const allowedPriorities = [
   'LOW',
   'MEDIUM',
   'HIGH',
   'URGENT',
+]
+
+const allowedInternalOwnerRoles = [
+  'ADMIN',
+  'CEO',
+  'MANAGER',
 ]
 
 const normalizeNullableText = (value) => {
@@ -37,6 +57,24 @@ const normalizeNullableText = (value) => {
 
   return trimmed === '' ? null : trimmed
 }
+
+const normalizeNullableNumber = (value) => {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ''
+  ) {
+    return null
+  }
+
+  const number = Number(value)
+
+  return Number.isFinite(number) ? number : null
+}
+
+/* =========================================================
+   LIST ALL TENDERS
+========================================================= */
 
 export const listTenders = async (req, res, next) => {
   try {
@@ -52,11 +90,22 @@ export const listTenders = async (req, res, next) => {
   }
 }
 
-export const getTenderDetails = async (req, res, next) => {
+/* =========================================================
+   GET ONE TENDER
+========================================================= */
+
+export const getTenderDetails = async (
+  req,
+  res,
+  next
+) => {
   try {
     const tenderId = Number(req.params.id)
 
-    if (!Number.isInteger(tenderId) || tenderId <= 0) {
+    if (
+      !Number.isInteger(tenderId) ||
+      tenderId <= 0
+    ) {
       return res.status(400).json({
         success: false,
         message: 'Invalid tender ID.',
@@ -72,7 +121,8 @@ export const getTenderDetails = async (req, res, next) => {
       })
     }
 
-    const assignments = await getTenderAssignments(tenderId)
+    const assignments =
+      await getTenderAssignments(tenderId)
 
     return res.status(200).json({
       success: true,
@@ -86,140 +136,50 @@ export const getTenderDetails = async (req, res, next) => {
   }
 }
 
-export const createNewTender = async (req, res, next) => {
+/* =========================================================
+   CREATE TENDER
+========================================================= */
+
+export const createNewTender = async (
+  req,
+  res,
+  next
+) => {
   try {
     const {
+      companyId,
       referenceNo,
       title,
       clientName,
       description,
+      category,
       status = 'DRAFT',
       priority = 'MEDIUM',
+      tenderValue,
+      result = 'PENDING',
       progress = 0,
       startDate,
       deadline,
+      closingTime,
+      internalDeadline,
+      submissionMethod,
+      submissionLocation,
+      internalOwnerId,
+      submittedAt,
     } = req.body
 
-    if (!referenceNo || !referenceNo.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Tender reference number is required.',
-      })
-    }
-
-    if (!title || !title.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Tender title is required.',
-      })
-    }
-
-    if (!allowedStatuses.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid tender status.',
-      })
-    }
-
-    if (!allowedPriorities.includes(priority)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid tender priority.',
-      })
-    }
-
-    const numericProgress = Number(progress)
+    /* -----------------------------
+       Required fields
+    ----------------------------- */
 
     if (
-      !Number.isInteger(numericProgress) ||
-      numericProgress < 0 ||
-      numericProgress > 100
+      !referenceNo ||
+      !String(referenceNo).trim()
     ) {
       return res.status(400).json({
         success: false,
-        message: 'Progress must be an integer between 0 and 100.',
-      })
-    }
-
-    if (
-      startDate &&
-      deadline &&
-      new Date(deadline) < new Date(startDate)
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: 'Deadline cannot be earlier than start date.',
-      })
-    }
-
-    const tenderId = await createTender({
-      referenceNo: referenceNo.trim(),
-      title: title.trim(),
-      clientName: normalizeNullableText(clientName),
-      description: normalizeNullableText(description),
-      status,
-      priority,
-      progress: numericProgress,
-      startDate: startDate || null,
-      deadline: deadline || null,
-      createdBy: req.user.id,
-    })
-
-    const tender = await getTenderById(tenderId)
-
-    return res.status(201).json({
-      success: true,
-      message: 'Tender created successfully.',
-      data: tender,
-    })
-  } catch (error) {
-    if (error.code === 'ER_DUP_ENTRY') {
-      return res.status(409).json({
-        success: false,
-        message: 'Tender reference number already exists.',
-      })
-    }
-
-    next(error)
-  }
-}
-
-export const updateTender = async (req, res, next) => {
-  try {
-    const tenderId = Number(req.params.id)
-
-    if (!Number.isInteger(tenderId) || tenderId <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid tender ID.',
-      })
-    }
-
-    const existingTender = await getTenderById(tenderId)
-
-    if (!existingTender) {
-      return res.status(404).json({
-        success: false,
-        message: 'Tender not found.',
-      })
-    }
-
-    const {
-      referenceNo = existingTender.reference_no,
-      title = existingTender.title,
-      clientName = existingTender.client_name,
-      description = existingTender.description,
-      status = existingTender.status,
-      priority = existingTender.priority,
-      progress = existingTender.progress,
-      startDate = existingTender.start_date,
-      deadline = existingTender.deadline,
-    } = req.body
-
-    if (!referenceNo || !String(referenceNo).trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Tender reference number is required.',
+        message:
+          'Tender reference number is required.',
       })
     }
 
@@ -230,6 +190,10 @@ export const updateTender = async (req, res, next) => {
       })
     }
 
+    /* -----------------------------
+       Status
+    ----------------------------- */
+
     if (!allowedStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
@@ -237,12 +201,62 @@ export const updateTender = async (req, res, next) => {
       })
     }
 
+    /* -----------------------------
+       Priority
+    ----------------------------- */
+
     if (!allowedPriorities.includes(priority)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid tender priority.',
       })
     }
+
+    /* -----------------------------
+       Result
+    ----------------------------- */
+
+    if (!allowedResults.includes(result)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tender result.',
+      })
+    }
+
+    /* -----------------------------
+       Tender Value
+    ----------------------------- */
+
+    const numericTenderValue =
+      normalizeNullableNumber(tenderValue)
+
+    if (
+      tenderValue !== undefined &&
+      tenderValue !== null &&
+      tenderValue !== '' &&
+      numericTenderValue === null
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Tender value must be a valid number.',
+      })
+    }
+
+    if (
+      numericTenderValue !== null &&
+      numericTenderValue < 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Tender value cannot be negative.',
+      })
+    }
+
+    /* -----------------------------
+       Progress
+    ----------------------------- */
 
     const numericProgress = Number(progress)
 
@@ -253,9 +267,14 @@ export const updateTender = async (req, res, next) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: 'Progress must be an integer between 0 and 100.',
+        message:
+          'Progress must be an integer between 0 and 100.',
       })
     }
+
+    /* -----------------------------
+       Dates
+    ----------------------------- */
 
     if (
       startDate &&
@@ -264,34 +283,169 @@ export const updateTender = async (req, res, next) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: 'Deadline cannot be earlier than start date.',
+        message:
+          'Deadline cannot be earlier than start date.',
       })
     }
 
-    await updateTenderById(tenderId, {
-      referenceNo: String(referenceNo).trim(),
+    /* -----------------------------
+       Company
+    ----------------------------- */
+
+    const numericCompanyId =
+      companyId === undefined ||
+      companyId === null ||
+      companyId === ''
+        ? null
+        : Number(companyId)
+
+    if (
+      numericCompanyId !== null &&
+      (!Number.isInteger(numericCompanyId) ||
+        numericCompanyId <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid company ID.',
+      })
+    }
+
+    if (numericCompanyId !== null) {
+      const company = await findCompanyById(
+        numericCompanyId
+      )
+
+      if (!company) {
+        return res.status(404).json({
+          success: false,
+          message:
+            'Selected company does not exist.',
+        })
+      }
+
+      if (company.status !== 'ACTIVE') {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Tender cannot be assigned to an inactive company.',
+        })
+      }
+    }
+
+    /* -----------------------------
+       Internal Owner
+    ----------------------------- */
+
+    const numericInternalOwnerId =
+      internalOwnerId === undefined ||
+      internalOwnerId === null ||
+      internalOwnerId === ''
+        ? null
+        : Number(internalOwnerId)
+
+    if (
+      numericInternalOwnerId !== null &&
+      (!Number.isInteger(
+        numericInternalOwnerId
+      ) ||
+        numericInternalOwnerId <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid internal owner ID.',
+      })
+    }
+
+    if (numericInternalOwnerId !== null) {
+      const internalOwner =
+        await findUserById(
+          numericInternalOwnerId
+        )
+
+      if (!internalOwner) {
+        return res.status(404).json({
+          success: false,
+          message:
+            'Selected internal owner does not exist.',
+        })
+      }
+
+      if (internalOwner.status !== 'ACTIVE') {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Internal owner must be an active user.',
+        })
+      }
+
+      if (
+        !allowedInternalOwnerRoles.includes(
+          internalOwner.role
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Internal owner must be an Admin, CEO, or Manager.',
+        })
+      }
+    }
+
+    /* -----------------------------
+       Create Tender
+    ----------------------------- */
+
+    const tenderId = await createTender({
+      companyId: numericCompanyId,
+      referenceNo: String(
+        referenceNo
+      ).trim(),
       title: String(title).trim(),
-      clientName: normalizeNullableText(clientName),
-      description: normalizeNullableText(description),
+      clientName:
+        normalizeNullableText(clientName),
+      description:
+        normalizeNullableText(description),
+      category:
+        normalizeNullableText(category),
       status,
       priority,
+      tenderValue: numericTenderValue,
+      result,
       progress: numericProgress,
       startDate: startDate || null,
       deadline: deadline || null,
+      closingTime: closingTime || null,
+      internalDeadline:
+        internalDeadline || null,
+      submissionMethod:
+        normalizeNullableText(
+          submissionMethod
+        ),
+      submissionLocation:
+        normalizeNullableText(
+          submissionLocation
+        ),
+      internalOwnerId:
+        numericInternalOwnerId,
+      submittedAt: submittedAt || null,
+      createdBy: req.user.id,
     })
 
-    const updatedTender = await getTenderById(tenderId)
+    const tender =
+      await getTenderById(tenderId)
 
-    return res.status(200).json({
+    return res.status(201).json({
       success: true,
-      message: 'Tender updated successfully.',
-      data: updatedTender,
+      message:
+        'Tender created successfully.',
+      data: tender,
     })
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({
         success: false,
-        message: 'Tender reference number already exists.',
+        message:
+          'Tender reference number already exists.',
       })
     }
 
@@ -299,22 +453,519 @@ export const updateTender = async (req, res, next) => {
   }
 }
 
-export const assignTender = async (req, res, next) => {
+/* =========================================================
+   UPDATE TENDER
+========================================================= */
+
+export const updateTender = async (
+  req,
+  res,
+  next
+) => {
   try {
     const tenderId = Number(req.params.id)
-    const userId = Number(req.body.userId)
 
-    if (!Number.isInteger(tenderId) || tenderId <= 0) {
+    if (
+      !Number.isInteger(tenderId) ||
+      tenderId <= 0
+    ) {
       return res.status(400).json({
         success: false,
         message: 'Invalid tender ID.',
       })
     }
 
-    if (!Number.isInteger(userId) || userId <= 0) {
+    const existingTender =
+      await getTenderById(tenderId)
+
+    if (!existingTender) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tender not found.',
+      })
+    }
+
+    const {
+      companyId = existingTender.company_id,
+      referenceNo =
+        existingTender.reference_no,
+      title = existingTender.title,
+      clientName =
+        existingTender.client_name,
+      description =
+        existingTender.description,
+      category = existingTender.category,
+      status = existingTender.status,
+      priority = existingTender.priority,
+      tenderValue =
+        existingTender.tender_value,
+      result = existingTender.result,
+      progress = existingTender.progress,
+      startDate =
+        existingTender.start_date,
+      deadline = existingTender.deadline,
+      closingTime =
+        existingTender.closing_time,
+      internalDeadline =
+        existingTender.internal_deadline,
+      submissionMethod =
+        existingTender.submission_method,
+      submissionLocation =
+        existingTender.submission_location,
+      internalOwnerId =
+        existingTender.internal_owner_id,
+      submittedAt =
+        existingTender.submitted_at,
+    } = req.body
+
+    /* -----------------------------
+       Required fields
+    ----------------------------- */
+
+    if (
+      !referenceNo ||
+      !String(referenceNo).trim()
+    ) {
       return res.status(400).json({
         success: false,
-        message: 'A valid employee user ID is required.',
+        message:
+          'Tender reference number is required.',
+      })
+    }
+
+    if (
+      !title ||
+      !String(title).trim()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tender title is required.',
+      })
+    }
+
+    /* -----------------------------
+       Status
+    ----------------------------- */
+
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tender status.',
+      })
+    }
+
+    /* -----------------------------
+       Priority
+    ----------------------------- */
+
+    if (
+      !allowedPriorities.includes(
+        priority
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tender priority.',
+      })
+    }
+
+    /* -----------------------------
+       Result
+    ----------------------------- */
+
+    if (!allowedResults.includes(result)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tender result.',
+      })
+    }
+
+    /* -----------------------------
+       Tender Value
+    ----------------------------- */
+
+    const numericTenderValue =
+      normalizeNullableNumber(tenderValue)
+
+    if (
+      tenderValue !== undefined &&
+      tenderValue !== null &&
+      tenderValue !== '' &&
+      numericTenderValue === null
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Tender value must be a valid number.',
+      })
+    }
+
+    if (
+      numericTenderValue !== null &&
+      numericTenderValue < 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Tender value cannot be negative.',
+      })
+    }
+
+    /* -----------------------------
+       Progress
+    ----------------------------- */
+
+    const numericProgress =
+      Number(progress)
+
+    if (
+      !Number.isInteger(numericProgress) ||
+      numericProgress < 0 ||
+      numericProgress > 100
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Progress must be an integer between 0 and 100.',
+      })
+    }
+
+    /* -----------------------------
+       Dates
+    ----------------------------- */
+
+    if (
+      startDate &&
+      deadline &&
+      new Date(deadline) <
+        new Date(startDate)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Deadline cannot be earlier than start date.',
+      })
+    }
+
+    /* -----------------------------
+       Company
+    ----------------------------- */
+
+    const numericCompanyId =
+      companyId === undefined ||
+      companyId === null ||
+      companyId === ''
+        ? null
+        : Number(companyId)
+
+    if (
+      numericCompanyId !== null &&
+      (!Number.isInteger(numericCompanyId) ||
+        numericCompanyId <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid company ID.',
+      })
+    }
+
+    if (numericCompanyId !== null) {
+      const company =
+        await findCompanyById(
+          numericCompanyId
+        )
+
+      if (!company) {
+        return res.status(404).json({
+          success: false,
+          message:
+            'Selected company does not exist.',
+        })
+      }
+
+      if (company.status !== 'ACTIVE') {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Tender cannot be assigned to an inactive company.',
+        })
+      }
+    }
+
+    /* -----------------------------
+       Internal Owner
+    ----------------------------- */
+
+    const numericInternalOwnerId =
+      internalOwnerId === undefined ||
+      internalOwnerId === null ||
+      internalOwnerId === ''
+        ? null
+        : Number(internalOwnerId)
+
+    if (
+      numericInternalOwnerId !== null &&
+      (!Number.isInteger(
+        numericInternalOwnerId
+      ) ||
+        numericInternalOwnerId <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Invalid internal owner ID.',
+      })
+    }
+
+    if (numericInternalOwnerId !== null) {
+      const internalOwner =
+        await findUserById(
+          numericInternalOwnerId
+        )
+
+      if (!internalOwner) {
+        return res.status(404).json({
+          success: false,
+          message:
+            'Selected internal owner does not exist.',
+        })
+      }
+
+      if (
+        internalOwner.status !== 'ACTIVE'
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Internal owner must be an active user.',
+        })
+      }
+
+      if (
+        !allowedInternalOwnerRoles.includes(
+          internalOwner.role
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Internal owner must be an Admin, CEO, or Manager.',
+        })
+      }
+    }
+
+    /* -----------------------------
+       Update Tender
+    ----------------------------- */
+
+    await updateTenderById(tenderId, {
+      companyId: numericCompanyId,
+      referenceNo: String(
+        referenceNo
+      ).trim(),
+      title: String(title).trim(),
+      clientName:
+        normalizeNullableText(clientName),
+      description:
+        normalizeNullableText(description),
+      category:
+        normalizeNullableText(category),
+      status,
+      priority,
+      tenderValue: numericTenderValue,
+      result,
+      progress: numericProgress,
+      startDate: startDate || null,
+      deadline: deadline || null,
+      closingTime: closingTime || null,
+      internalDeadline:
+        internalDeadline || null,
+      submissionMethod:
+        normalizeNullableText(
+          submissionMethod
+        ),
+      submissionLocation:
+        normalizeNullableText(
+          submissionLocation
+        ),
+      internalOwnerId:
+        numericInternalOwnerId,
+      submittedAt: submittedAt || null,
+    })
+
+    const updatedTender =
+      await getTenderById(tenderId)
+
+    return res.status(200).json({
+      success: true,
+      message:
+        'Tender updated successfully.',
+      data: updatedTender,
+    })
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({
+        success: false,
+        message:
+          'Tender reference number already exists.',
+      })
+    }
+
+    next(error)
+  }
+}
+
+/* =========================================================
+   ASSIGN EMPLOYEE TO TENDER
+========================================================= */
+
+export const assignTender = async (
+  req,
+  res,
+  next
+) => {
+  try {
+    const tenderId = Number(
+      req.params.id
+    )
+
+    const userId = Number(
+      req.body.userId
+    )
+
+    if (
+      !Number.isInteger(tenderId) ||
+      tenderId <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tender ID.',
+      })
+    }
+
+    if (
+      !Number.isInteger(userId) ||
+      userId <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'A valid employee user ID is required.',
+      })
+    }
+
+    const tender =
+      await getTenderById(tenderId)
+
+    if (!tender) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tender not found.',
+      })
+    }
+
+    const employee =
+      await findUserById(userId)
+
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        message:
+          'Selected user does not exist.',
+      })
+    }
+
+    if (employee.role !== 'EMPLOYEE') {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Tenders can only be assigned to employees.',
+      })
+    }
+
+    if (employee.status !== 'ACTIVE') {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Tender cannot be assigned to an inactive employee.',
+      })
+    }
+
+    const assignmentId =
+      await assignTenderToEmployee({
+        tenderId,
+        userId,
+        assignedBy: req.user.id,
+      })
+
+    const assignments =
+      await getTenderAssignments(tenderId)
+
+    return res.status(201).json({
+      success: true,
+      message:
+        'Tender assigned successfully.',
+      data: {
+        assignmentId,
+        tenderId,
+        employee: {
+          id: employee.id,
+          name: employee.name,
+          email: employee.email,
+          department:
+            employee.department,
+        },
+        assignedBy: req.user.id,
+        assignments,
+      },
+    })
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({
+        success: false,
+        message:
+          'This employee is already assigned to this tender.',
+      })
+    }
+
+    next(error)
+  }
+}
+
+
+
+
+
+/* =========================================================
+   REMOVE EMPLOYEE FROM TENDER
+========================================================= */
+
+export const removeTenderTeamMember = async (
+  req,
+  res,
+  next
+) => {
+  try {
+    const tenderId = Number(req.params.id)
+    const userId = Number(req.params.userId)
+
+    if (
+      !Number.isInteger(tenderId) ||
+      tenderId <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tender ID.',
+      })
+    }
+
+    if (
+      !Number.isInteger(userId) ||
+      userId <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid employee user ID.',
       })
     }
 
@@ -327,69 +978,48 @@ export const assignTender = async (req, res, next) => {
       })
     }
 
-    const employee = await findUserById(userId)
-
-    if (!employee) {
-      return res.status(404).json({
-        success: false,
-        message: 'Selected user does not exist.',
-      })
-    }
-
-    if (employee.role !== 'EMPLOYEE') {
-      return res.status(400).json({
-        success: false,
-        message: 'Tenders can only be assigned to employees.',
-      })
-    }
-
-    if (employee.status !== 'ACTIVE') {
-      return res.status(400).json({
-        success: false,
-        message: 'Tender cannot be assigned to an inactive employee.',
-      })
-    }
-
-    const assignmentId = await assignTenderToEmployee({
+    const removed = await removeTenderAssignment({
       tenderId,
       userId,
-      assignedBy: req.user.id,
     })
 
-    const assignments = await getTenderAssignments(tenderId)
+    if (!removed) {
+      return res.status(404).json({
+        success: false,
+        message:
+          'Employee is not assigned to this tender.',
+      })
+    }
 
-    return res.status(201).json({
+    const assignments =
+      await getTenderAssignments(tenderId)
+
+    return res.status(200).json({
       success: true,
-      message: 'Tender assigned successfully.',
+      message:
+        'Employee removed from tender successfully.',
       data: {
-        assignmentId,
         tenderId,
-        employee: {
-          id: employee.id,
-          name: employee.name,
-          email: employee.email,
-          department: employee.department,
-        },
-        assignedBy: req.user.id,
+        removedUserId: userId,
         assignments,
       },
     })
   } catch (error) {
-    if (error.code === 'ER_DUP_ENTRY') {
-      return res.status(409).json({
-        success: false,
-        message: 'This employee is already assigned to this tender.',
-      })
-    }
-
     next(error)
   }
 }
 
+/* =========================================================
+   LIST ASSIGNABLE EMPLOYEES
+========================================================= */
 
-export const listAssignableEmployees = async (req, res) => {
+export const listAssignableEmployees = async (
+  req,
+  res
+) => {
   try {
-    const employees = await getActiveEmployees()
+    const employees =
+      await getActiveEmployees()
 
     return res.status(200).json({
       success: true,
@@ -403,15 +1033,46 @@ export const listAssignableEmployees = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: 'Unable to load assignable employees.',
+      message:
+        'Unable to load assignable employees.',
     })
   }
 }
 
-export const listMyAssignedTenders = async (req, res) => {
+export const listInternalOwners = async (req, res) => {
+  try {
+    const owners = await getActiveTenderOwners()
+
+    return res.status(200).json({
+      success: true,
+      owners,
+    })
+  } catch (error) {
+    console.error(
+      'List internal owners error:',
+      error
+    )
+
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to load internal owners.',
+    })
+  }
+}
+
+/* =========================================================
+   EMPLOYEE ASSIGNED TENDERS
+========================================================= */
+
+export const listMyAssignedTenders = async (
+  req,
+  res
+) => {
   try {
     const tenders =
-      await getAssignedTendersByUserId(req.user.id)
+      await getAssignedTendersByUserId(
+        req.user.id
+      )
 
     return res.status(200).json({
       success: true,
@@ -425,7 +1086,67 @@ export const listMyAssignedTenders = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: 'Unable to load assigned tenders.',
+      message:
+        'Unable to load assigned tenders.',
     })
+  }
+}
+
+
+
+/* =========================================================
+   ARCHIVE TENDER
+========================================================= */
+
+export const archiveTender = async (
+  req,
+  res,
+  next
+) => {
+  try {
+    const tenderId = Number(req.params.id)
+
+    if (
+      !Number.isInteger(tenderId) ||
+      tenderId <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tender ID.',
+      })
+    }
+
+    const tender = await getTenderById(tenderId)
+
+    if (!tender) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tender not found.',
+      })
+    }
+
+    const archived = await archiveTenderById(
+      tenderId
+    )
+
+    if (!archived) {
+      return res.status(404).json({
+        success: false,
+        message:
+          'Tender was not found or is already archived.',
+      })
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Tender deleted successfully.',
+      data: {
+        id: tenderId,
+        referenceNo: tender.reference_no,
+        title: tender.title,
+      },
+    })
+  } catch (error) {
+    next(error)
   }
 }

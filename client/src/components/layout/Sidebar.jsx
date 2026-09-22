@@ -30,7 +30,21 @@ const menuByRole = {
     { label: 'Users', icon: Users, path: '/admin/users' },
     { label: 'Notifications', icon: Bell, path: '/admin/notifications' },
     { label: 'Settings', icon: Settings, path: '/admin/settings' },
+    {label: 'Companies',icon: BriefcaseBusiness, path: '/admin/companies',},
   ],
+
+  CEO: [
+  { label: 'Dashboard', icon: LayoutDashboard, path: '/ceo/dashboard' },
+  { label: 'Tender Management', icon: BriefcaseBusiness, path: '/ceo/tenders' },
+  { label: 'Companies', icon: BriefcaseBusiness, path: '/ceo/companies' },
+  { label: 'Compliance', icon: ClipboardCheck, path: '/ceo/compliance' },
+  { label: 'Document Library', icon: FolderOpen, path: '/ceo/documents' },
+  { label: 'Invoices', icon: ReceiptText, path: '/ceo/invoices' },
+  { label: 'Reports & Analytics', icon: ChartNoAxesCombined, path: '/ceo/reports' },
+  { label: 'Attendance', icon: Clock3, path: '/ceo/attendance' },
+  { label: 'Notifications', icon: Bell, path: '/ceo/notifications' },
+  { label: 'Settings', icon: Settings, path: '/ceo/settings' },
+],
 
   MANAGER: [
     { label: 'Dashboard', icon: LayoutDashboard, path: '/manager/dashboard' },
@@ -61,6 +75,7 @@ const menuByRole = {
 
 const ROLE_BADGE_STYLES = {
   ADMIN: 'bg-[#6B3A98]/20 text-[#C9A9E8] ring-1 ring-[#6B3A98]/40',
+  CEO: 'bg-amber-400/15 text-amber-200 ring-1 ring-amber-400/30',
   MANAGER: 'bg-[#2F8CC9]/20 text-[#9CCEEE] ring-1 ring-[#2F8CC9]/40',
   EMPLOYEE: 'bg-white/10 text-slate-300 ring-1 ring-white/10',
 }

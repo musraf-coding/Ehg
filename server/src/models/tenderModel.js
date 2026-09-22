@@ -2,26 +2,59 @@ import pool from '../config/db.js'
 export const getAllTenders = async () => {
   // 1. Get all tenders
   const [tenders] = await pool.query(`
-    SELECT
-      t.id,
-      t.reference_no,
-      t.title,
-      t.client_name,
-      t.description,
-      t.status,
-      t.priority,
-      t.progress,
-      t.start_date,
-      t.deadline,
-      t.created_by,
-      t.created_at,
-      t.updated_at,
-      u.name AS created_by_name
-    FROM tenders t
-    LEFT JOIN users u
-      ON t.created_by = u.id
-    ORDER BY t.created_at DESC
-  `)
+  SELECT
+    t.id,
+    t.company_id,
+    c.name AS company_name,
+    c.code AS company_code,
+
+    t.reference_no,
+    t.title,
+    t.client_name,
+    t.description,
+    t.category,
+
+    t.status,
+    t.priority,
+    t.tender_value,
+    t.result,
+    t.progress,
+
+    t.start_date,
+    t.deadline,
+    t.closing_time,
+    t.internal_deadline,
+
+    t.submission_method,
+    t.submission_location,
+    t.submitted_at,
+
+    t.internal_owner_id,
+    owner.name AS internal_owner_name,
+    owner.email AS internal_owner_email,
+    owner.role_id AS internal_owner_role_id,
+
+    t.created_by,
+    creator.name AS created_by_name,
+
+    t.created_at,
+    t.updated_at
+
+  FROM tenders t
+
+  LEFT JOIN companies c
+    ON t.company_id = c.id
+
+  LEFT JOIN users owner
+    ON t.internal_owner_id = owner.id
+
+  LEFT JOIN users creator
+    ON t.created_by = creator.id
+
+  WHERE t.is_active = 1
+
+  ORDER BY t.created_at DESC
+`)
 
   if (tenders.length === 0) {
     return []
@@ -88,124 +121,218 @@ export const getAllTenders = async () => {
   }))
 }
 export const getTenderById = async (id) => {
-  const [rows] = await pool.query(
-    `
-    SELECT
-      t.id,
-      t.reference_no,
-      t.title,
-      t.client_name,
-      t.description,
-      t.status,
-      t.priority,
-      t.progress,
-      t.start_date,
-      t.deadline,
-      t.created_by,
-      t.created_at,
-      t.updated_at,
-      u.name AS created_by_name
-    FROM tenders t
-    LEFT JOIN users u
-      ON t.created_by = u.id
-    WHERE t.id = ?
-    LIMIT 1
-    `,
-    [id]
-  )
+ const [rows] = await pool.query(
+  `
+  SELECT
+    t.id,
+    t.company_id,
+    c.name AS company_name,
+    c.code AS company_code,
+
+    t.reference_no,
+    t.title,
+    t.client_name,
+    t.description,
+    t.category,
+
+    t.status,
+    t.priority,
+    t.tender_value,
+    t.result,
+    t.progress,
+
+    t.start_date,
+    t.deadline,
+    t.closing_time,
+    t.internal_deadline,
+
+    t.submission_method,
+    t.submission_location,
+    t.submitted_at,
+
+    t.internal_owner_id,
+    owner.name AS internal_owner_name,
+    owner.email AS internal_owner_email,
+
+    t.created_by,
+    creator.name AS created_by_name,
+
+    t.created_at,
+    t.updated_at
+
+  FROM tenders t
+
+  LEFT JOIN companies c
+    ON t.company_id = c.id
+
+  LEFT JOIN users owner
+    ON t.internal_owner_id = owner.id
+
+  LEFT JOIN users creator
+    ON t.created_by = creator.id
+
+  WHERE t.id = ?
+    AND t.is_active = 1
+  LIMIT 1
+  `,
+  [id]
+)
 
   return rows[0] || null
 }
 
 export const createTender = async ({
+  companyId,
   referenceNo,
   title,
   clientName,
   description,
+  category,
   status,
   priority,
+  tenderValue,
+  result,
   progress,
   startDate,
   deadline,
+  closingTime,
+  internalDeadline,
+  submissionMethod,
+  submissionLocation,
+  internalOwnerId,
+  submittedAt,
   createdBy,
 }) => {
-  const [result] = await pool.query(
+  const [resultRow] = await pool.query(
     `
     INSERT INTO tenders (
+      company_id,
       reference_no,
       title,
       client_name,
       description,
+      category,
       status,
       priority,
+      tender_value,
+      result,
       progress,
       start_date,
       deadline,
+      closing_time,
+      internal_deadline,
+      submission_method,
+      submission_location,
+      internal_owner_id,
+      submitted_at,
       created_by
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?
+    )
     `,
     [
+      companyId || null,
       referenceNo,
       title,
       clientName || null,
       description || null,
+      category || null,
       status || 'DRAFT',
       priority || 'MEDIUM',
+      tenderValue ?? null,
+      result || 'PENDING',
       progress ?? 0,
       startDate || null,
       deadline || null,
+      closingTime || null,
+      internalDeadline || null,
+      submissionMethod || null,
+      submissionLocation || null,
+      internalOwnerId || null,
+      submittedAt || null,
       createdBy,
     ]
   )
 
-  return result.insertId
+  return resultRow.insertId
 }
 
 export const updateTenderById = async (
   id,
   {
+    companyId,
     referenceNo,
     title,
     clientName,
     description,
+    category,
     status,
     priority,
+    tenderValue,
+    result,
     progress,
     startDate,
     deadline,
+    closingTime,
+    internalDeadline,
+    submissionMethod,
+    submissionLocation,
+    internalOwnerId,
+    submittedAt,
   }
 ) => {
-  const [result] = await pool.query(
+  const [updateResult] = await pool.query(
     `
     UPDATE tenders
     SET
+      company_id = ?,
       reference_no = ?,
       title = ?,
       client_name = ?,
       description = ?,
+      category = ?,
       status = ?,
       priority = ?,
+      tender_value = ?,
+      result = ?,
       progress = ?,
       start_date = ?,
-      deadline = ?
+      deadline = ?,
+      closing_time = ?,
+      internal_deadline = ?,
+      submission_method = ?,
+      submission_location = ?,
+      internal_owner_id = ?,
+      submitted_at = ?
     WHERE id = ?
     `,
     [
+      companyId || null,
       referenceNo,
       title,
       clientName || null,
       description || null,
+      category || null,
       status,
       priority,
+      tenderValue ?? null,
+      result || 'PENDING',
       progress,
       startDate || null,
       deadline || null,
+      closingTime || null,
+      internalDeadline || null,
+      submissionMethod || null,
+      submissionLocation || null,
+      internalOwnerId || null,
+      submittedAt || null,
       id,
     ]
   )
 
-  return result.affectedRows
+  return updateResult.affectedRows
 }
 
 export const assignTenderToEmployee = async ({
@@ -279,6 +406,7 @@ export const getAssignedTendersByUserId = async (userId) => {
       ON a.assigned_by = assigner.id
 
     WHERE a.user_id = ?
+      AND t.is_active = 1
 
     ORDER BY
       CASE
@@ -292,4 +420,57 @@ export const getAssignedTendersByUserId = async (userId) => {
   )
 
   return rows
+}
+
+
+export const removeTenderAssignment = async ({
+  tenderId,
+  userId,
+}) => {
+  const [result] = await pool.query(
+    `
+    DELETE FROM assignments
+    WHERE tender_id = ?
+      AND user_id = ?
+    `,
+    [tenderId, userId]
+  )
+
+  return result.affectedRows
+}
+
+
+
+export const isUserAssignedToTender = async ({
+  tenderId,
+  userId,
+}) => {
+  const [rows] = await pool.query(
+    `
+    SELECT id
+    FROM assignments
+    WHERE tender_id = ?
+      AND user_id = ?
+    LIMIT 1
+    `,
+    [tenderId, userId]
+  )
+
+  return rows.length > 0
+}
+
+
+
+export const archiveTenderById = async (tenderId) => {
+  const [result] = await pool.query(
+    `
+    UPDATE tenders
+    SET is_active = 0
+    WHERE id = ?
+      AND is_active = 1
+    `,
+    [tenderId]
+  )
+
+  return result.affectedRows
 }

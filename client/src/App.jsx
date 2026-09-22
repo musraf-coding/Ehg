@@ -11,6 +11,11 @@ import EmployeeDashboard from './pages/employee/EmployeeDashboard'
 import AssignedTenders from './pages/employee/AssignedTenders'
 import TenderManagement from './pages/tenders/TenderManagement'
 import CreateTender from './pages/tenders/CreateTender'
+import EditTender from './pages/tenders/EditTender'
+import TenderWorkspace from './pages/tenders/TenderWorkspace'
+
+import CEODashboard from './pages/ceo/CEODashboard'
+import CompaniesPage from './pages/companies/CompaniesPage'
 
 import UsersPage from './pages/admin/UsersPage'
 import LoginPage from './pages/auth/LoginPage'
@@ -64,13 +69,60 @@ function App() {
         path="/admin/tenders/create"
         element={<CreateTender />}
       />
+      <Route
+        path="/admin/tenders/:id/edit"
+        element={<EditTender />}
+      />
+
+      <Route
+        path="/admin/tenders/:id/workspace"
+        element={<TenderWorkspace />}
+      />
       <Route path="/admin/users" element={<UsersPage />} />
+
+      <Route
+        path="/admin/companies"
+        element={<CompaniesPage />}
+      />
 
           <Route
             path="/admin/*"
             element={<DashboardPlaceholder title="Admin Module" />}
           />
         </Route>
+
+
+        {/* CEO */}
+        <Route
+          element={
+            <ProtectedRoute allowedRoles={['CEO']}>
+              <AppLayout />
+            </ProtectedRoute>
+          }
+        >
+  <Route
+    path="/ceo/dashboard"
+    element={<CEODashboard />}
+  />
+
+  <Route
+    path="/ceo/tenders"
+    element={<TenderManagement />}
+  />
+  <Route
+    path="/ceo/tenders/:id/workspace"
+    element={<TenderWorkspace />}
+  />
+    <Route
+    path="/ceo/companies"
+    element={<CompaniesPage />}
+  />
+
+  <Route
+    path="/ceo/*"
+    element={<DashboardPlaceholder title="CEO Module" />}
+  />
+</Route>
 
         {/* MANAGER */}
         <Route
@@ -94,6 +146,14 @@ function App() {
           element={<CreateTender />}
         />
           <Route
+            path="/manager/tenders/:id/edit"
+            element={<EditTender />}
+          />
+          <Route
+            path="/manager/tenders/:id/workspace"
+            element={<TenderWorkspace />}
+          />
+          <Route
             path="/manager/*"
             element={<DashboardPlaceholder title="Manager Module" />}
           />
@@ -115,6 +175,11 @@ function App() {
         <Route
           path="/employee/assigned-tenders"
           element={<AssignedTenders />}
+        />
+
+        <Route
+          path="/employee/tenders/:id/workspace"
+          element={<TenderWorkspace />}
         />
           <Route
             path="/employee/*"

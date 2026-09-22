@@ -11,6 +11,9 @@ import {
   Users,
   X,
   CheckCircle2,
+   Pencil,
+   FolderOpen,
+   Trash2
 } from 'lucide-react'
 
 import { useAuth } from '../../context/AuthContext'
@@ -64,7 +67,12 @@ const TenderManagement = () => {
       ? '/admin/tenders/create'
       : '/manager/tenders/create'
 
-  const fetchTenders = async () => {
+  const getEditTenderPath = (tenderId) =>
+    user?.role === 'ADMIN'
+      ? `/admin/tenders/${tenderId}/edit`
+      : `/manager/tenders/${tenderId}/edit`
+
+    const fetchTenders = async () => {
     try {
       setLoading(true)
       setError('')
@@ -81,6 +89,18 @@ const TenderManagement = () => {
       setLoading(false)
     }
   }
+
+  const getWorkspacePath = (tenderId) => {
+  if (user?.role === 'ADMIN') {
+    return `/admin/tenders/${tenderId}/workspace`
+  }
+
+  if (user?.role === 'CEO') {
+    return `/ceo/tenders/${tenderId}/workspace`
+  }
+
+  return `/manager/tenders/${tenderId}/workspace`
+}
 
   useEffect(() => {
     fetchTenders()
@@ -212,6 +232,36 @@ const TenderManagement = () => {
     }
   }
 
+
+
+  const handleDeleteTender = async (tender) => {
+  const confirmed = window.confirm(
+    `Delete tender "${tender.reference_no} - ${tender.title}"?\n\nThis tender will be removed from active tender management.`
+  )
+
+  if (!confirmed) {
+    return
+  }
+
+  try {
+    setError('')
+    setSuccessMessage('')
+
+    await api.delete(`/tenders/${tender.id}`)
+
+    setSuccessMessage(
+      `${tender.reference_no} was deleted successfully.`
+    )
+
+    await fetchTenders()
+  } catch (error) {
+    setError(
+      error.response?.data?.message ||
+        'Unable to delete tender.'
+    )
+  }
+}
+
   return (
     <div>
       {/* Page header */}
@@ -231,14 +281,18 @@ const TenderManagement = () => {
           </p>
         </div>
 
+        {user?.role !== 'CEO' && (
         <button
           type="button"
-          onClick={() => navigate(createTenderPath)}
+          onClick={() =>
+            navigate(createTenderPath)
+          }
           className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-[#6B3A98] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#5A3182] sm:w-auto"
         >
           <Plus size={18} />
           Create Tender
         </button>
+      )}
       </div>
 
       {/* Success message */}
@@ -549,24 +603,62 @@ const TenderManagement = () => {
                             </div>
                           </td>
 
-                          {/* Action */}
-                          <td className="px-5 py-4">
+                        {/* Action */}
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-2">
                             <button
                               type="button"
                               onClick={() =>
-                                openAssignModal(
-                                  tender
+                                navigate(
+                                  getWorkspacePath(tender.id)
                                 )
                               }
-                              className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-semibold text-[#6B3A98] transition hover:bg-purple-100"
+                              className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg bg-[#6B3A98] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#5A3182]"
                             >
-                              <UserPlus
-                                size={15}
-                              />
-
-                              Assign
+                              <FolderOpen size={15} />
+                              Workspace
                             </button>
-                          </td>
+
+                            {user?.role !== 'CEO' && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    navigate(
+                                      getEditTenderPath(tender.id)
+                                    )
+                                  }
+                                  className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-[#6B3A98]/30 hover:bg-purple-50 hover:text-[#6B3A98]"
+                                >
+                                  <Pencil size={15} />
+                                  {/* Edit */}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleDeleteTender(tender)
+                                  }
+                                  className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-100"
+                                >
+                                  <Trash2 size={15} />
+                                  {/* Delete */}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openAssignModal(tender)
+                                  }
+                                  className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-semibold text-[#6B3A98] transition hover:bg-purple-100"
+                                >
+                                  <UserPlus size={15} />
+                                  Assign
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
                         </tr>
                       )
                     )}
@@ -727,16 +819,59 @@ const TenderManagement = () => {
                       </div>
 
                       {/* Assign button */}
+                    <div className="mt-5 space-y-3">
                       <button
                         type="button"
                         onClick={() =>
-                          openAssignModal(tender)
+                          navigate(
+                            getWorkspacePath(tender.id)
+                          )
                         }
-                        className="mt-5 inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-4 py-2.5 text-sm font-semibold text-[#6B3A98] transition hover:bg-purple-100"
+                        className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-[#6B3A98] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#5A3182]"
                       >
-                        <UserPlus size={17} />
-                        Assign Employee
+                        <FolderOpen size={17} />
+                        Open Workspace
                       </button>
+
+                      {user?.role !== 'CEO' && (
+                        <div className="grid grid-cols-3 gap-3">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              navigate(
+                                getEditTenderPath(tender.id)
+                              )
+                            }
+                            className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                          >
+                            <Pencil size={17} />
+                            {/* Edit */}
+                          </button>
+
+                          <button
+                          type="button"
+                          onClick={() =>
+                            handleDeleteTender(tender)
+                          }
+                          className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-100"
+                        >
+                          <Trash2 size={17} />
+                          {/* Delete */}
+                        </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openAssignModal(tender)
+                            }
+                            className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-4 py-2.5 text-sm font-semibold text-[#6B3A98] transition hover:bg-purple-100"
+                          >
+                            <UserPlus size={17} />
+                            Assign
+                          </button>
+                        </div>
+                      )}
+                    </div>
                     </div>
                   )
                 )}

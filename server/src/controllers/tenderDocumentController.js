@@ -1,0 +1,1047 @@
+import fs from 'fs'
+import path from 'path'
+
+import {
+  createTenderDocument,
+  deactivateTenderDocument,
+  getTenderDocumentById,
+  getTenderDocuments,
+  getTenderDocumentSummary,
+  updateTenderDocument,
+} from '../models/tenderDocumentModel.js'
+
+import { getTenderById } from '../models/tenderModel.js'
+import pool from '../config/db.js'
+
+const ALLOWED_DOCUMENT_TYPES = [
+  'ORIGINAL_TENDER',
+  'INTERNAL_SUBMISSION',
+]
+
+const parsePositiveId = (value) => {
+  const parsed = Number(value)
+
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return null
+  }
+
+  return parsed
+}
+
+const removePhysicalFile = (filePath) => {
+  if (!filePath) return
+
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath)
+    }
+  } catch (error) {
+    console.error(
+      'Unable to remove physical document:',
+      error.message
+    )
+  }
+}
+
+const getTenderOrFail = async (tenderId) => {
+  const tender = await getTenderById(tenderId)
+
+  return tender || null
+}
+
+const validateRequirement = async (
+  requirementId,
+  tenderId
+) => {
+  if (!requirementId) {
+    return true
+  }
+
+  const [rows] = await pool.query(
+    `
+      SELECT id
+      FROM tender_requirements
+      WHERE id = ?
+        AND tender_id = ?
+        AND is_active = 1
+      LIMIT 1
+    `,
+    [requirementId, tenderId]
+  )
+
+  return rows.length > 0
+}
+
+const validateComplianceItem = async (
+  complianceItemId,
+  tenderId
+) => {
+  if (!complianceItemId) {
+    return true
+  }
+
+  const [rows] = await pool.query(
+    `
+      SELECT id
+      FROM tender_compliance_items
+      WHERE id = ?
+        AND tender_id = ?
+        AND is_active = 1
+      LIMIT 1
+    `,
+    [complianceItemId, tenderId]
+  )
+
+  return rows.length > 0
+}
+
+const isRequirementAssignedToEmployee = async (
+  requirementId,
+  tenderId,
+  userId
+) => {
+  if (!requirementId) {
+    return true
+  }
+
+  const [rows] = await pool.query(
+    `
+      SELECT id
+      FROM tender_requirements
+      WHERE id = ?
+        AND tender_id = ?
+        AND assigned_user_id = ?
+        AND is_active = 1
+      LIMIT 1
+    `,
+    [requirementId, tenderId, userId]
+  )
+
+  return rows.length > 0
+}
+
+const isComplianceAssignedToEmployee = async (
+  complianceItemId,
+  tenderId,
+  userId
+) => {
+  if (!complianceItemId) {
+    return true
+  }
+
+  const [rows] = await pool.query(
+    `
+      SELECT id
+      FROM tender_compliance_items
+      WHERE id = ?
+        AND tender_id = ?
+        AND assigned_user_id = ?
+        AND is_active = 1
+      LIMIT 1
+    `,
+    [complianceItemId, tenderId, userId]
+  )
+
+  return rows.length > 0
+}
+
+export const listTenderDocuments = async (
+  req,
+  res
+) => {
+  try {
+    const tenderId = parsePositiveId(
+      req.params.tenderId
+    )
+
+    if (!tenderId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tender ID.',
+      })
+    }
+
+    const tender = await getTenderOrFail(tenderId)
+
+    if (!tender) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tender not found.',
+      })
+    }
+
+    const [documents, summary] = await Promise.all([
+      getTenderDocuments(tenderId),
+      getTenderDocumentSummary(tenderId),
+    ])
+
+    return res.json({
+      success: true,
+      count: documents.length,
+      summary,
+      data: documents,
+    })
+  } catch (error) {
+    console.error(
+      'List tender documents error:',
+      error
+    )
+
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to load tender documents.',
+    })
+  }
+}
+
+export const uploadTenderDocument = async (
+  req,
+  res
+) => {
+  try {
+    const tenderId = parsePositiveId(
+      req.params.tenderId
+    )
+
+    if (!tenderId) {
+      removePhysicalFile(req.file?.path)
+
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tender ID.',
+      })
+    }
+
+    const tender = await getTenderOrFail(tenderId)
+
+    if (!tender) {
+      removePhysicalFile(req.file?.path)
+
+      return res.status(404).json({
+        success: false,
+        message: 'Tender not found.',
+      })
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please select a document to upload.',
+      })
+    }
+
+
+
+    const {
+      documentType,
+      title,
+      description,
+      requirementId,  
+      complianceItemId,
+    } = req.body
+
+    if (
+      !ALLOWED_DOCUMENT_TYPES.includes(documentType)
+    ) {
+      removePhysicalFile(req.file.path)
+
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid document type.',
+      })
+    }
+
+    // Employees may only upload internal submission documents.
+// Original tender documents remain management-controlled.
+if (
+  req.user.role === 'EMPLOYEE' &&
+  documentType !== 'INTERNAL_SUBMISSION'
+) {
+  removePhysicalFile(req.file.path)
+
+  return res.status(403).json({
+    success: false,
+    message:
+      'Employees can only upload internal submission documents.',
+  })
+}
+
+    if (!title || !title.trim()) {
+      removePhysicalFile(req.file.path)
+
+      return res.status(400).json({
+        success: false,
+        message: 'Document title is required.',
+      })
+    }
+
+    const parsedRequirementId = requirementId
+      ? parsePositiveId(requirementId)
+      : null
+
+    const parsedComplianceItemId = complianceItemId
+      ? parsePositiveId(complianceItemId)
+      : null
+
+    if (
+      requirementId &&
+      !parsedRequirementId
+    ) {
+      removePhysicalFile(req.file.path)
+
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid requirement ID.',
+      })
+    }
+
+    if (
+      complianceItemId &&
+      !parsedComplianceItemId
+    ) {
+      removePhysicalFile(req.file.path)
+
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid compliance item ID.',
+      })
+    }
+
+    if (
+      parsedRequirementId &&
+      parsedComplianceItemId
+    ) {
+      removePhysicalFile(req.file.path)
+
+      return res.status(400).json({
+        success: false,
+        message:
+          'A document can be linked to either a requirement or a compliance item, not both.',
+      })
+    }
+
+    const requirementValid =
+      await validateRequirement(
+        parsedRequirementId,
+        tenderId
+      )
+
+    if (!requirementValid) {
+      removePhysicalFile(req.file.path)
+
+      return res.status(400).json({
+        success: false,
+        message:
+          'The selected requirement does not belong to this tender.',
+      })
+    }
+
+    const complianceValid =
+      await validateComplianceItem(
+        parsedComplianceItemId,
+        tenderId
+      )
+
+    if (!complianceValid) {
+      removePhysicalFile(req.file.path)
+
+      return res.status(400).json({
+        success: false,
+        message:
+          'The selected compliance item does not belong to this tender.',
+      })
+    }
+
+
+    // Employees may link evidence only to work
+// that is specifically assigned to them.
+if (req.user.role === 'EMPLOYEE') {
+  if (parsedRequirementId) {
+    const assignedToEmployee =
+      await isRequirementAssignedToEmployee(
+        parsedRequirementId,
+        tenderId,
+        req.user.id
+      )
+
+    if (!assignedToEmployee) {
+      removePhysicalFile(req.file.path)
+
+      return res.status(403).json({
+        success: false,
+        message:
+          'You can only upload evidence for requirements assigned to you.',
+      })
+    }
+  }
+
+  if (parsedComplianceItemId) {
+    const assignedToEmployee =
+      await isComplianceAssignedToEmployee(
+        parsedComplianceItemId,
+        tenderId,
+        req.user.id
+      )
+
+    if (!assignedToEmployee) {
+      removePhysicalFile(req.file.path)
+
+      return res.status(403).json({
+        success: false,
+        message:
+          'You can only upload evidence for compliance items assigned to you.',
+      })
+    }
+  }
+}
+
+    const document = await createTenderDocument({
+      tenderId,
+      documentType,
+      title: title.trim(),
+      description:
+        description?.trim() || null,
+
+      fileName: req.file.originalname,
+      storedFileName: req.file.filename,
+      filePath: req.file.path,
+
+      fileUrl: null,
+
+      mimeType: req.file.mimetype,
+      fileSize: req.file.size,
+
+      requirementId: parsedRequirementId,
+      complianceItemId:
+        parsedComplianceItemId,
+
+      uploadedBy: req.user.id,
+    })
+
+    const summary =
+      await getTenderDocumentSummary(tenderId)
+
+    return res.status(201).json({
+      success: true,
+      message: 'Document uploaded successfully.',
+      summary,
+      data: document,
+    })
+  } catch (error) {
+    removePhysicalFile(req.file?.path)
+
+    console.error(
+      'Upload tender document error:',
+      error
+    )
+
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to upload tender document.',
+    })
+  }
+}
+
+export const editTenderDocument = async (
+  req,
+  res
+) => {
+  try {
+    const tenderId = parsePositiveId(
+      req.params.tenderId
+    )
+
+    const documentId = parsePositiveId(
+      req.params.documentId
+    )
+
+    if (!tenderId || !documentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tender or document ID.',
+      })
+    }
+
+    const tender = await getTenderOrFail(tenderId)
+
+    if (!tender) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tender not found.',
+      })
+    }
+
+    const existing =
+  await getTenderDocumentById(documentId)
+
+if (
+  !existing ||
+  Number(existing.tender_id) !== tenderId
+) {
+  removePhysicalFile(req.file?.path)
+
+  return res.status(404).json({
+    success: false,
+    message: 'Document not found for this tender.',
+  })
+}
+
+// --------------------------------------------------
+// Employee document edit security
+// --------------------------------------------------
+if (req.user.role === 'EMPLOYEE') {
+  // Employee can never edit source/original tender documents.
+  if (
+    existing.document_type !== 'INTERNAL_SUBMISSION'
+  ) {
+    removePhysicalFile(req.file?.path)
+
+    return res.status(403).json({
+      success: false,
+      message:
+        'Employees can only edit internal submission documents.',
+    })
+  }
+
+  // Employee can only edit a document they uploaded.
+  if (
+    Number(existing.uploaded_by) !==
+    Number(req.user.id)
+  ) {
+    removePhysicalFile(req.file?.path)
+
+    return res.status(403).json({
+      success: false,
+      message:
+        'You can only edit evidence that you uploaded.',
+    })
+  }
+}
+
+const {
+  documentType,
+  title,
+  description,
+  requirementId,
+  complianceItemId,
+} = req.body
+
+if (
+  req.user.role === 'EMPLOYEE' &&
+  documentType !== 'INTERNAL_SUBMISSION'
+) {
+  removePhysicalFile(req.file?.path)
+
+  return res.status(403).json({
+    success: false,
+    message:
+      'Employees cannot change evidence into an original tender document.',
+  })
+}
+
+    if (
+      !ALLOWED_DOCUMENT_TYPES.includes(documentType)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid document type.',
+      })
+    }
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Document title is required.',
+      })
+    }
+
+    const parsedRequirementId = requirementId
+      ? parsePositiveId(requirementId)
+      : null
+
+    const parsedComplianceItemId = complianceItemId
+      ? parsePositiveId(complianceItemId)
+      : null
+
+    if (
+      requirementId &&
+      !parsedRequirementId
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid requirement ID.',
+      })
+    }
+
+    if (
+      complianceItemId &&
+      !parsedComplianceItemId
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid compliance item ID.',
+      })
+    }
+
+    if (
+      parsedRequirementId &&
+      parsedComplianceItemId
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'A document can be linked to either a requirement or a compliance item, not both.',
+      })
+    }
+
+    const requirementValid =
+      await validateRequirement(
+        parsedRequirementId,
+        tenderId
+      )
+
+    if (!requirementValid) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'The selected requirement does not belong to this tender.',
+      })
+    }
+
+    const complianceValid =
+      await validateComplianceItem(
+        parsedComplianceItemId,
+        tenderId
+      )
+
+    if (!complianceValid) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'The selected compliance item does not belong to this tender.',
+      })
+    }
+
+    // --------------------------------------------------
+// Employee linked responsibility security
+// --------------------------------------------------
+if (req.user.role === 'EMPLOYEE') {
+  // Employee evidence must remain linked to a
+  // requirement or compliance item.
+  if (
+    !parsedRequirementId &&
+    !parsedComplianceItemId
+  ) {
+    removePhysicalFile(req.file?.path)
+
+    return res.status(403).json({
+      success: false,
+      message:
+        'Employee evidence must remain linked to an assigned requirement or compliance item.',
+    })
+  }
+
+  if (parsedRequirementId) {
+    const assignedToEmployee =
+      await isRequirementAssignedToEmployee(
+        parsedRequirementId,
+        tenderId,
+        req.user.id
+      )
+
+    if (!assignedToEmployee) {
+      removePhysicalFile(req.file?.path)
+
+      return res.status(403).json({
+        success: false,
+        message:
+          'You can only edit evidence for requirements assigned to you.',
+      })
+    }
+  }
+
+  if (parsedComplianceItemId) {
+    const assignedToEmployee =
+      await isComplianceAssignedToEmployee(
+        parsedComplianceItemId,
+        tenderId,
+        req.user.id
+      )
+
+    if (!assignedToEmployee) {
+      removePhysicalFile(req.file?.path)
+
+      return res.status(403).json({
+        success: false,
+        message:
+          'You can only edit evidence for compliance items assigned to you.',
+      })
+    }
+  }
+}
+
+    const updatedDocument =
+  await updateTenderDocument(
+    documentId,
+    {
+      documentType,
+      title: title.trim(),
+      description:
+        description?.trim() || null,
+      requirementId:
+        parsedRequirementId,
+      complianceItemId:
+        parsedComplianceItemId,
+
+      // If a replacement file was uploaded,
+      // update the stored file information.
+      fileName: req.file?.originalname || null,
+      storedFileName: req.file?.filename || null,
+      filePath: req.file?.path || null,
+      fileUrl: null,
+      mimeType: req.file?.mimetype || null,
+      fileSize: req.file?.size || null,
+    }
+  )
+
+    const summary =
+      await getTenderDocumentSummary(tenderId)
+
+    return res.json({
+      success: true,
+    message: req.file
+  ? 'Document and file replaced successfully.'
+  : 'Document information updated successfully.',
+      summary,
+      data: updatedDocument,
+    })
+  } catch (error) {
+
+    removePhysicalFile(req.file?.path)
+    
+    console.error(
+      'Edit tender document error:',
+      error
+    )
+
+    return res.status(500).json({
+      success: false,
+      message:
+        'Unable to update document information.',
+    })
+  }
+}
+
+export const downloadTenderDocument = async (
+  req,
+  res
+) => {
+  try {
+    const tenderId = parsePositiveId(
+      req.params.tenderId
+    )
+
+    const documentId = parsePositiveId(
+      req.params.documentId
+    )
+
+    if (!tenderId || !documentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tender or document ID.',
+      })
+    }
+
+    const tender = await getTenderOrFail(tenderId)
+
+    if (!tender) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tender not found.',
+      })
+    }
+
+    const document =
+      await getTenderDocumentById(documentId)
+
+    if (
+      !document ||
+      Number(document.tender_id) !== tenderId
+    ) {
+      return res.status(404).json({
+        success: false,
+        message: 'Document not found for this tender.',
+      })
+    }
+
+    const absolutePath = path.resolve(
+      document.file_path
+    )
+
+    if (!fs.existsSync(absolutePath)) {
+      return res.status(404).json({
+        success: false,
+        message:
+          'The document file is missing from storage.',
+      })
+    }
+
+    return res.download(
+      absolutePath,
+      document.file_name
+    )
+  } catch (error) {
+    console.error(
+      'Download tender document error:',
+      error
+    )
+
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to download document.',
+    })
+  }
+}
+
+
+export const previewTenderDocument = async (
+  req,
+  res
+) => {
+  try {
+    const tenderId = parsePositiveId(
+      req.params.tenderId
+    )
+
+    const documentId = parsePositiveId(
+      req.params.documentId
+    )
+
+    if (!tenderId || !documentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tender or document ID.',
+      })
+    }
+
+    const tender = await getTenderOrFail(tenderId)
+
+    if (!tender) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tender not found.',
+      })
+    }
+
+    const document =
+      await getTenderDocumentById(documentId)
+
+    if (
+      !document ||
+      Number(document.tender_id) !== tenderId
+    ) {
+      return res.status(404).json({
+        success: false,
+        message:
+          'Document not found for this tender.',
+      })
+    }
+
+    const absolutePath = path.resolve(
+      document.file_path
+    )
+
+    if (!fs.existsSync(absolutePath)) {
+      return res.status(404).json({
+        success: false,
+        message:
+          'The document file is missing from storage.',
+      })
+    }
+
+    res.setHeader(
+      'Content-Type',
+      document.mime_type ||
+        'application/octet-stream'
+    )
+
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${encodeURIComponent(
+        document.file_name
+      )}"`
+    )
+
+    return res.sendFile(absolutePath)
+  } catch (error) {
+    console.error(
+      'Preview tender document error:',
+      error
+    )
+
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to preview document.',
+    })
+  }
+}
+
+export const removeTenderDocument = async (
+  req,
+  res
+) => {
+  try {
+    const tenderId = parsePositiveId(
+      req.params.tenderId
+    )
+
+    const documentId = parsePositiveId(
+      req.params.documentId
+    )
+
+    if (!tenderId || !documentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tender or document ID.',
+      })
+    }
+
+    const tender = await getTenderOrFail(tenderId)
+
+    if (!tender) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tender not found.',
+      })
+    }
+
+    const document =
+  await getTenderDocumentById(documentId)
+
+if (
+  !document ||
+  Number(document.tender_id) !== tenderId
+) {
+  return res.status(404).json({
+    success: false,
+    message: 'Document not found for this tender.',
+  })
+}
+
+// --------------------------------------------------
+// Employee document delete security
+// --------------------------------------------------
+if (req.user.role === 'EMPLOYEE') {
+  // Employees can never remove source/original documents.
+  if (
+    document.document_type !== 'INTERNAL_SUBMISSION'
+  ) {
+    return res.status(403).json({
+      success: false,
+      message:
+        'Employees can only remove their own internal submission documents.',
+    })
+  }
+
+  // Employees can only remove evidence they uploaded.
+  if (
+    Number(document.uploaded_by) !==
+    Number(req.user.id)
+  ) {
+    return res.status(403).json({
+      success: false,
+      message:
+        'You can only remove evidence that you uploaded.',
+    })
+  }
+
+  // Employee evidence must still belong to work
+  // currently assigned to that employee.
+  if (document.requirement_id) {
+    const assignedToEmployee =
+      await isRequirementAssignedToEmployee(
+        document.requirement_id,
+        tenderId,
+        req.user.id
+      )
+
+    if (!assignedToEmployee) {
+      return res.status(403).json({
+        success: false,
+        message:
+          'You can only remove evidence for requirements assigned to you.',
+      })
+    }
+  }
+
+  if (document.compliance_item_id) {
+    const assignedToEmployee =
+      await isComplianceAssignedToEmployee(
+        document.compliance_item_id,
+        tenderId,
+        req.user.id
+      )
+
+    if (!assignedToEmployee) {
+      return res.status(403).json({
+        success: false,
+        message:
+          'You can only remove evidence for compliance items assigned to you.',
+      })
+    }
+  }
+
+  // Contextual employee evidence should remain linked
+  // to either a requirement or compliance responsibility.
+  if (
+    !document.requirement_id &&
+    !document.compliance_item_id
+  ) {
+    return res.status(403).json({
+      success: false,
+      message:
+        'Only evidence linked to your assigned responsibility can be removed here.',
+    })
+  }
+}
+
+const removed =
+  await deactivateTenderDocument(documentId)
+
+    if (!removed) {
+      return res.status(404).json({
+        success: false,
+        message: 'Document is already removed.',
+      })
+    }
+
+    /*
+      We intentionally do NOT delete the physical file here.
+
+      The database record is soft-deleted first so we preserve
+      an audit trail and avoid accidental permanent destruction.
+
+      A future administrator cleanup/archive process can safely
+      remove orphaned physical files.
+    */
+
+    const summary =
+      await getTenderDocumentSummary(tenderId)
+
+    return res.json({
+      success: true,
+      message: 'Document removed successfully.',
+      summary,
+    })
+  } catch (error) {
+    console.error(
+      'Remove tender document error:',
+      error
+    )
+
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to remove document.',
+    })
+  }
+}
